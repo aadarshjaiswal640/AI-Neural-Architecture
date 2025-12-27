@@ -42,7 +42,7 @@ async function initializeApp() {
   });
 
   // Register routes
-  const httpServer = await registerRoutes(app);
+  await registerRoutes(app);
 
   // Error handling middleware
   app.use(

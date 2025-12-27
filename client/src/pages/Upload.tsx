@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, AlertCircle, FileText, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { getSocket } from "@/lib/socket";
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
@@ -15,44 +14,6 @@ export default function Upload() {
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const { toast } = useToast();
-
-  useEffect(() => {
-    const socket = getSocket();
-
-    socket.on("analysis-progress", (data: { progress: number; message: string }) => {
-      setProgress(data.progress);
-    });
-
-    socket.on("analysis-complete", () => {
-      setProgress(100);
-      setIsAnalyzing(false);
-      setAnalysisComplete(true);
-      queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/charts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/models"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/recommendations"] });
-      toast({
-        title: "Analysis Complete",
-        description: "Your dataset has been successfully analyzed.",
-      });
-    });
-
-    socket.on("analysis-error", (data: { error: string }) => {
-      setIsAnalyzing(false);
-      setProgress(0);
-      toast({
-        title: "Analysis Error",
-        description: data.error,
-        variant: "destructive",
-      });
-    });
-
-    return () => {
-      socket.off("analysis-progress");
-      socket.off("analysis-complete");
-      socket.off("analysis-error");
-    };
-  }, [toast]);
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
@@ -71,25 +32,54 @@ export default function Upload() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("/api/upload-dataset", {
+      // Upload the dataset
+      const uploadResponse = await fetch("/api/upload-dataset", {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
+      if (!uploadResponse.ok) {
         throw new Error("Upload failed");
       }
 
-      const result = await response.json();
-      setDatasetId(result.datasetId);
+      const uploadResult = await uploadResponse.json();
+      const newDatasetId = uploadResult.datasetId;
+      setDatasetId(newDatasetId);
       
-      const socket = getSocket();
-      socket.emit("analyze-dataset", result.datasetId);
+      // Analyze the dataset
+      setProgress(50);
+      const analysisResponse = await fetch("/api/analyze-dataset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ datasetId: newDatasetId }),
+      });
+
+      if (!analysisResponse.ok) {
+        throw new Error("Analysis failed");
+      }
+
+      setProgress(100);
+      setIsAnalyzing(false);
+      setAnalysisComplete(true);
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/charts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/models"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/recommendations"] });
+      
+      toast({
+        title: "Analysis Complete",
+        description: "Your dataset has been successfully analyzed.",
+      });
     } catch (error: any) {
       setIsAnalyzing(false);
+      setProgress(0);
       toast({
-        title: "Upload Failed",
-        description: error.message || "Failed to upload dataset",
+        title: "Error",
+        description: error.message || "Failed to process dataset",
         variant: "destructive",
       });
     }

@@ -1,6 +1,4 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { Server as SocketIOServer } from "socket.io";
 import multer from "multer";
 import { storage } from "./storage";
 import {
@@ -12,7 +10,7 @@ import {
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/upload-dataset", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -175,63 +173,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
-  const io = new SocketIOServer(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
-    },
-  });
-
-  io.on("connection", (socket) => {
-    console.log("Client connected:", socket.id);
-
-    socket.on("analyze-dataset", async (datasetId: string) => {
-      try {
-        await storage.updateDatasetStatus(datasetId, "processing");
-        socket.emit("analysis-progress", { progress: 10, message: "Loading dataset..." });
-
-        const models = await storage.getModelsByDataset(datasetId);
-        socket.emit("analysis-progress", { progress: 30, message: "Calculating statistics..." });
-
-        const stats = await storage.calculateStatistics(datasetId);
-        if (stats) {
-          await storage.createAnalysisResults({
-            datasetId: datasetId,
-            meanEnergy: stats.meanEnergy,
-            medianParameters: stats.medianParameters,
-            modeModelType: stats.modeModelType,
-            minAccuracy: stats.minAccuracy,
-            maxAccuracy: stats.maxAccuracy,
-            minFlops: stats.minFlops,
-            maxFlops: stats.maxFlops,
-            stdDevEnergy: stats.stdDevEnergy,
-            avgEfficiency: stats.avgEfficiency,
-            totalCarbonFootprint: stats.totalCarbonFootprint,
-          });
-        }
-        socket.emit("analysis-progress", { progress: 60, message: "Generating charts..." });
-
-        const chartData = await storage.generateChartData(datasetId);
-        socket.emit("analysis-progress", { progress: 90, message: "Finalizing..." });
-
-        await storage.updateDatasetStatus(datasetId, "completed");
-
-        socket.emit("analysis-complete", {
-          stats,
-          chartData,
-          modelCount: models.length,
-        });
-      } catch (error: any) {
-        console.error("Analysis error:", error);
-        socket.emit("analysis-error", { error: error.message });
+  // Analysis endpoint for serverless compatibility
+  app.post("/api/analyze-dataset", async (req, res) => {
+    try {
+      const { datasetId } = req.body;
+      if (!datasetId) {
+        return res.status(400).json({ error: "Dataset ID required" });
       }
-    });
 
-    socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
-    });
+      await storage.updateDatasetStatus(datasetId, "processing");
+
+      const models = await storage.getModelsByDataset(datasetId);
+      const stats = await storage.calculateStatistics(datasetId);
+
+      if (stats) {
+        await storage.createAnalysisResults({
+          datasetId,
+          meanEnergy: stats.meanEnergy,
+          medianParameters: stats.medianParameters,
+          modeModelType: stats.modeModelType,
+          minAccuracy: stats.minAccuracy,
+          maxAccuracy: stats.maxAccuracy,
+          minFlops: stats.minFlops,
+          maxFlops: stats.maxFlops,
+          stdDevEnergy: stats.stdDevEnergy,
+          avgEfficiency: stats.avgEfficiency,
+          totalCarbonFootprint: stats.totalCarbonFootprint,
+        });
+      }
+
+      const chartData = await storage.generateChartData(datasetId);
+      await storage.updateDatasetStatus(datasetId, "completed");
+
+      res.json({
+        stats,
+        chartData,
+        modelCount: models.length,
+      });
+    } catch (error: any) {
+      console.error("Analysis error:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
-
-  return httpServer;
 }
