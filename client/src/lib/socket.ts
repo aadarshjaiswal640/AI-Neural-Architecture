@@ -1,19 +1,8 @@
-import { io, Socket } from "socket.io-client";
-
-let socket: Socket | null = null;
-
-export function getSocket(): Socket {
-  if (!socket) {
-    socket = io({
-      transports: ["websocket", "polling"],
-    });
-  }
-  return socket;
+// Socket is no longer used - using HTTP polling instead
+export function getSocket() {
+  return null;
 }
 
 export function disconnectSocket() {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
+  // no-op
 }
