@@ -4,13 +4,15 @@
   "installCommand": "npm install",
   "framework": "vite",
   "public": "dist/public",
-  "env": {
-    "NODE_ENV": "production"
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3"
+    }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "api/index.ts"
+      "destination": "/api"
     },
     {
       "source": "/(.*)",
